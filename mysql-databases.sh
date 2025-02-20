@@ -5,7 +5,7 @@ DB_USER="user_backups"
 DB_PASS="PASSWD"
 DEFAULT_CLOUD_BUCKET="gs://bucket-backups-servers/databases"
 CLOUD_BUCKET="$DEFAULT_CLOUD_BUCKET"
-LOG_FILE="/var/log/backups/bkp-databases.log"
+LOG_FILE="/var/log/backups-databases.log"
 # Timestamp format: YYYY-MM-DD-HH
 BACKUP_DATE=$(date +%Y-%m-%d-%H)
 ERROR_COUNT=0
