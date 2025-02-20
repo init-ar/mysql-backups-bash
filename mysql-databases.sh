@@ -14,13 +14,17 @@ ENCRYPTION_KEY=""  # Default: no encryption
 
 # Default mode is "gcp"
 MODE="gcp"
-# Default local backup path. For local mode, this can also be a remote folder (user@host:/path)
+# Default backup path for local backups.
+# For local mode, this is the local folder.
+# For remote mode, this is the destination folder on the remote host.
 LOCAL_PATH="/var/backups/databases"
-# Default retention days (only applied for local mode)
+# Remote host (user@host). If empty, backups are stored locally.
+REMOTE_HOST=""
+# Default retention days (applies for local mode)
 RETENTION_DAYS=7
 
 # Process command line options
-while getopts "m:l:b:k:T:" opt; do
+while getopts "m:l:b:k:T:h:" opt; do
     case $opt in
         m)
             MODE=$OPTARG
@@ -37,23 +41,19 @@ while getopts "m:l:b:k:T:" opt; do
         T)
             RETENTION_DAYS=$OPTARG
             ;;
+        h)
+            REMOTE_HOST=$OPTARG
+            ;;
         *)
-            echo "Usage: $0 [-m mode (gcp|local|s3)] [-l local_backup_path or remote (user@host:/path)] [-b cloud_bucket_path] [-k encryption_key] [-T retention_days]"
+            echo "Usage: $0 [-m mode (gcp|local|s3)] [-l backup_path] [-b cloud_bucket_path] [-k encryption_key] [-T retention_days] [-h remote_host (user@host)]"
             exit 1
             ;;
     esac
 done
 shift $((OPTIND - 1))
 
-# Determine if local destination is remote (SSH)
-DEST_IS_SSH=0
-if [[ "$LOCAL_PATH" == *@*:* ]]; then
-    DEST_IS_SSH=1
-fi
-
 # Logging function with formatted timestamp and error checking
 log_check_message() {
-    # Format: [Tue Jan  7 13:03:38 2025] [level] message
     local timestamp
     timestamp=$(date '+%a %b %e %T %Y')
     local log_message="[${timestamp}] $1"
@@ -97,7 +97,6 @@ get_db_names() {
 # Function to perform backup for a single database
 backup_database() {
     local db_name="$1"
-    # If encryption is enabled, adjust the extension accordingly
     local ext=".sql.gz"
     if [ -n "$ENCRYPTION_KEY" ]; then
         ext=".sql.gz.enc"
@@ -107,9 +106,9 @@ backup_database() {
     log_check_message "[info] Starting backup for ${db_name}"
     
     if [ "$MODE" == "local" ]; then
-        if [ $DEST_IS_SSH -eq 1 ]; then
-            # Remote destination via SSH:
-            # Create backup in a temporary folder locally
+        if [ -n "$REMOTE_HOST" ]; then
+            # Remote backup via SSH:
+            # Create backup in a temporary local file and then transfer via scp.
             local tmp_backup="/tmp/${file_name}"
             if [ -n "$ENCRYPTION_KEY" ]; then
                 mysqldump -u"$DB_USER" -p"$DB_PASS" --single-transaction "$db_name" | gzip | \
@@ -118,23 +117,22 @@ backup_database() {
                 mysqldump -u"$DB_USER" -p"$DB_PASS" --single-transaction "$db_name" | gzip > "$tmp_backup"
             fi
             if [ $? -ne 0 ]; then
-                log_check_message "[error] Error during backup for ${db_name} (local tmp file creation)"
-                ((ERROR_COUNT++))
+                log_check_message "[error] Error during backup for ${db_name} (creating temporary file)"
+                ERROR_COUNT=$((ERROR_COUNT+1))
                 rm -f "$tmp_backup"
                 return 1
             fi
-            # Transfer the backup file via SCP
-            log_check_message "[info] Transferring backup for ${db_name} to remote destination: ${LOCAL_PATH}"
-            scp "$tmp_backup" "${LOCAL_PATH}/${db_name}-${BACKUP_DATE}${ext}"
+            log_check_message "[info] Transferring backup for ${db_name} to remote host ${REMOTE_HOST}:${LOCAL_PATH}"
+            scp "$tmp_backup" "${REMOTE_HOST}:${LOCAL_PATH}/${db_name}-${BACKUP_DATE}${ext}"
             if [ $? -ne 0 ]; then
-                log_check_message "[error] Failed to transfer backup for ${db_name} to remote destination"
-                ((ERROR_COUNT++))
+                log_check_message "[error] Failed to transfer backup for ${db_name} to remote host"
+                ERROR_COUNT=$((ERROR_COUNT+1))
             else
-                log_check_message "[info] Successfully transferred backup for ${db_name} to remote destination"
+                log_check_message "[info] Successfully transferred backup for ${db_name} to remote host"
             fi
             rm -f "$tmp_backup"
         else
-            # Local destination: store file in LOCAL_PATH
+            # Local backup to local filesystem
             local backup_dir="${LOCAL_PATH}/${db_name}"
             mkdir -p "$backup_dir"
             local backup_file="${backup_dir}/${file_name}"
@@ -146,7 +144,7 @@ backup_database() {
             fi
             if [ $? -ne 0 ]; then
                 log_check_message "[error] Error during local backup for ${db_name}"
-                ((ERROR_COUNT++))
+                ERROR_COUNT=$((ERROR_COUNT+1))
             else
                 log_check_message "[info] Local backup for ${db_name} completed: ${backup_file}"
             fi
@@ -162,7 +160,7 @@ backup_database() {
         fi
         if [ $? -ne 0 ]; then
             log_check_message "[error] Error during S3 backup for ${db_name}"
-            ((ERROR_COUNT++))
+            ERROR_COUNT=$((ERROR_COUNT+1))
         else
             log_check_message "[info] S3 backup for ${db_name} completed: ${remote_file}"
         fi
@@ -177,7 +175,7 @@ backup_database() {
         fi
         if [ $? -ne 0 ]; then
             log_check_message "[error] Error during GCP backup for ${db_name}"
-            ((ERROR_COUNT++))
+            ERROR_COUNT=$((ERROR_COUNT+1))
         else
             log_check_message "[info] GCP backup for ${db_name} completed: ${remote_file}"
         fi
@@ -187,15 +185,13 @@ backup_database() {
     fi
 }
 
-# Function to apply retention policy (for local mode)
+# Function to apply retention policy for local backups
 apply_retention_policy() {
     log_check_message "[info] Applying retention policy: deleting backups older than ${RETENTION_DAYS} days."
     if [ "$MODE" == "local" ]; then
-        if [ $DEST_IS_SSH -eq 1 ]; then
-            # Extract remote host and remote path from LOCAL_PATH (format: user@host:/path)
-            REMOTE_HOST=$(echo "$LOCAL_PATH" | cut -d':' -f1)
-            REMOTE_PATH=$(echo "$LOCAL_PATH" | cut -d':' -f2-)
-            ssh "$REMOTE_HOST" "find \"$REMOTE_PATH\" -type f -mtime +${RETENTION_DAYS} -delete"
+        if [ -n "$REMOTE_HOST" ]; then
+            # Remote retention: use SSH to delete old backups in the remote path
+            ssh "$REMOTE_HOST" "find \"$LOCAL_PATH\" -type f -mtime +${RETENTION_DAYS} -delete"
             if [ $? -eq 0 ]; then
                 log_check_message "[info] Retention policy applied successfully on remote destination."
             else
