@@ -2,19 +2,22 @@
 
 # Global variables
 DB_USER="user_backups"
-DB_PASS="$PASSWD" 
-BUCKET_NAME="gs://bucket-backups-servers/databases"
+DB_PASS="ZGGLLUC6AOvDJr44gzKFZg=="
+DEFAULT_CLOUD_BUCKET="gs://bucket-backups-servers/databases"
+CLOUD_BUCKET="$DEFAULT_CLOUD_BUCKET"
 LOG_FILE="/var/log/backups/bkp-databases.log"
-BACKUP_DATE=$(date +%Y%m%d)
+# Timestamp format: YYYY-MM-DD-HH
+BACKUP_DATE=$(date +%Y-%m-%d-%H)
 ERROR_COUNT=0
+ENCRYPTION_KEY=""  # Default: no encryption
 
 # Default mode is "gcp"
 MODE="gcp"
-# Default local path (change as needed)
+# Default local backup path
 LOCAL_PATH="/var/backups/databases"
 
 # Process command line options
-while getopts "m:l:" opt; do
+while getopts "m:l:b:k:" opt; do
     case $opt in
         m)
             MODE=$OPTARG
@@ -22,19 +25,29 @@ while getopts "m:l:" opt; do
         l)
             LOCAL_PATH=$OPTARG
             ;;
+        b)
+            CLOUD_BUCKET=$OPTARG
+            ;;
+        k)
+            ENCRYPTION_KEY=$OPTARG
+            ;;
         *)
-            echo "Usage: $0 [-m mode (gcp|local)] [-l local_backup_path]"
+            echo "Usage: $0 [-m mode (gcp|local|s3)] [-l local_backup_path] [-b cloud_bucket_path] [-k encryption_key]"
             exit 1
             ;;
     esac
 done
 shift $((OPTIND - 1))
 
-# Logging function with error checking
+# Logging function with formatted timestamp and error checking
 log_check_message() {
-    echo "$1 on $(date)" >> "$LOG_FILE"
+    # Format: [Tue Jan  7 13:03:38 2025] [level] message
+    local timestamp
+    timestamp=$(date '+%a %b %e %T %Y')
+    local log_message="[${timestamp}] $1"
+    echo "$log_message" >> "$LOG_FILE"
     if [ $? -ne 0 ]; then
-        echo "[error] An error occurred during $1" >> "$LOG_FILE"
+        echo "[${timestamp}] [error] An error occurred during logging: $1" >> "$LOG_FILE"
         exit 1
     fi
 }
@@ -72,31 +85,64 @@ get_db_names() {
 # Function to perform backup for a single database
 backup_database() {
     local db_name="$1"
-    local file_name="${db_name}_${BACKUP_DATE}.sql.gz"
+    # If encryption is enabled, adjust the extension accordingly
+    local ext=".sql.gz"
+    if [ -n "$ENCRYPTION_KEY" ]; then
+        ext=".sql.gz.enc"
+    fi
+    local file_name="${db_name}-${BACKUP_DATE}${ext}"
 
     log_check_message "[info] Starting backup for ${db_name}"
 
     if [ "$MODE" == "local" ]; then
         # Local backup: store file in LOCAL_PATH
         local backup_file="${LOCAL_PATH}/${db_name}/${file_name}"
-        mkdir -p "${LOCAL_PATH}/${db_name}"  # Ensure directory exists
-        mysqldump -u"$DB_USER" -p"$DB_PASS" --single-transaction "$db_name" | gzip > "$backup_file"
+        mkdir -p "${LOCAL_PATH}/${db_name}"
+        if [ -n "$ENCRYPTION_KEY" ]; then
+            mysqldump -u"$DB_USER" -p"$DB_PASS" --single-transaction "$db_name" | gzip | \
+            openssl enc -aes-256-cbc -salt -pass pass:"$ENCRYPTION_KEY" > "$backup_file"
+        else
+            mysqldump -u"$DB_USER" -p"$DB_PASS" --single-transaction "$db_name" | gzip > "$backup_file"
+        fi
         if [ $? -ne 0 ]; then
             log_check_message "[error] Error during local backup for ${db_name}"
             ((ERROR_COUNT++))
         else
             log_check_message "[info] Local backup for ${db_name} completed: ${backup_file}"
         fi
-    else
-        # GCP backup: use gsutil to copy backup directly to the bucket
+    elif [ "$MODE" == "s3" ]; then
+        # S3 backup: use AWS CLI to copy to the bucket defined in CLOUD_BUCKET
         local remote_file="${db_name}/${file_name}"
-        mysqldump -u"$DB_USER" -p"$DB_PASS" --single-transaction "$db_name" | gzip | gsutil cp - "${BUCKET_NAME}/${remote_file}"
+        if [ -n "$ENCRYPTION_KEY" ]; then
+            mysqldump -u"$DB_USER" -p"$DB_PASS" --single-transaction "$db_name" | gzip | \
+            openssl enc -aes-256-cbc -salt -pass pass:"$ENCRYPTION_KEY" | aws s3 cp - "${CLOUD_BUCKET}/${remote_file}"
+        else
+            mysqldump -u"$DB_USER" -p"$DB_PASS" --single-transaction "$db_name" | gzip | aws s3 cp - "${CLOUD_BUCKET}/${remote_file}"
+        fi
+        if [ $? -ne 0 ]; then
+            log_check_message "[error] Error during S3 backup for ${db_name}"
+            ((ERROR_COUNT++))
+        else
+            log_check_message "[info] S3 backup for ${db_name} completed: ${remote_file}"
+        fi
+    elif [ "$MODE" == "gcp" ]; then
+        # GCP backup: use gsutil to copy to the bucket defined in CLOUD_BUCKET
+        local remote_file="${db_name}/${file_name}"
+        if [ -n "$ENCRYPTION_KEY" ]; then
+            mysqldump -u"$DB_USER" -p"$DB_PASS" --single-transaction "$db_name" | gzip | \
+            openssl enc -aes-256-cbc -salt -pass pass:"$ENCRYPTION_KEY" | gsutil cp - "${CLOUD_BUCKET}/${remote_file}"
+        else
+            mysqldump -u"$DB_USER" -p"$DB_PASS" --single-transaction "$db_name" | gzip | gsutil cp - "${CLOUD_BUCKET}/${remote_file}"
+        fi
         if [ $? -ne 0 ]; then
             log_check_message "[error] Error during GCP backup for ${db_name}"
             ((ERROR_COUNT++))
         else
             log_check_message "[info] GCP backup for ${db_name} completed: ${remote_file}"
         fi
+    else
+        echo "Unknown mode: $MODE. Valid modes: gcp, local, s3"
+        exit 1
     fi
 }
 
