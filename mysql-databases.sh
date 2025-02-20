@@ -1,3 +1,9 @@
+
+#!/bin/bash
+set -o pipefail
+
+# Global variables
+DB_USER="user_backups"
 DB_USER="root"
 DB_PASS="PASSWD"
 DEFAULT_CLOUD_BUCKET="gs://bucket-backups-servers/databases"
