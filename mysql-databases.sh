@@ -2,7 +2,7 @@
 
 # Global variables
 DB_USER="user_backups"
-DB_PASS="ZGGLLUC6AOvDJr44gzKFZg=="
+DB_PASS="PASSWD"
 DEFAULT_CLOUD_BUCKET="gs://bucket-backups-servers/databases"
 CLOUD_BUCKET="$DEFAULT_CLOUD_BUCKET"
 LOG_FILE="/var/log/backups/bkp-databases.log"
