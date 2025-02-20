@@ -1,11 +1,12 @@
 #!/bin/bash
+set -o pipefail
 
 # Global variables
 DB_USER="user_backups"
 DB_PASS="PASSWD"
 DEFAULT_CLOUD_BUCKET="gs://bucket-backups-servers/databases"
 CLOUD_BUCKET="$DEFAULT_CLOUD_BUCKET"
-LOG_FILE="/var/log/backups-databases.log"
+LOG_FILE="/var/log/backups/bkp-databases.log"
 # Timestamp format: YYYY-MM-DD-HH
 BACKUP_DATE=$(date +%Y-%m-%d-%H)
 ERROR_COUNT=0
@@ -85,65 +86,72 @@ get_db_names() {
 # Function to perform backup for a single database
 backup_database() {
     local db_name="$1"
-    # If encryption is enabled, adjust the extension accordingly
     local ext=".sql.gz"
     if [ -n "$ENCRYPTION_KEY" ]; then
         ext=".sql.gz.enc"
     fi
     local file_name="${db_name}-${BACKUP_DATE}${ext}"
+    local TMP_ERR
+    TMP_ERR=$(mktemp)
 
     log_check_message "[info] Starting backup for ${db_name}"
 
     if [ "$MODE" == "local" ]; then
-        # Local backup: store file in LOCAL_PATH
         local backup_file="${LOCAL_PATH}/${db_name}/${file_name}"
         mkdir -p "${LOCAL_PATH}/${db_name}"
         if [ -n "$ENCRYPTION_KEY" ]; then
-            mysqldump -u"$DB_USER" -p"$DB_PASS" --single-transaction "$db_name" | gzip | \
+            mysqldump -u"$DB_USER" -p"$DB_PASS" --single-transaction "$db_name" 2> "$TMP_ERR" | gzip | \
             openssl enc -aes-256-cbc -salt -pass pass:"$ENCRYPTION_KEY" > "$backup_file"
         else
-            mysqldump -u"$DB_USER" -p"$DB_PASS" --single-transaction "$db_name" | gzip > "$backup_file"
+            mysqldump -u"$DB_USER" -p"$DB_PASS" --single-transaction "$db_name" 2> "$TMP_ERR" | gzip > "$backup_file"
         fi
-        if [ $? -ne 0 ]; then
-            log_check_message "[error] Error during local backup for ${db_name}"
+        local PIPE_EXIT=$?
+        if [ $PIPE_EXIT -ne 0 ] || [ -s "$TMP_ERR" ]; then
+            log_check_message "[error] Error during local backup for ${db_name}: $(cat "$TMP_ERR")"
             ((ERROR_COUNT++))
         else
             log_check_message "[info] Local backup for ${db_name} completed: ${backup_file}"
         fi
+
     elif [ "$MODE" == "s3" ]; then
-        # S3 backup: use AWS CLI to copy to the bucket defined in CLOUD_BUCKET
         local remote_file="${db_name}/${file_name}"
         if [ -n "$ENCRYPTION_KEY" ]; then
-            mysqldump -u"$DB_USER" -p"$DB_PASS" --single-transaction "$db_name" | gzip | \
+            mysqldump -u"$DB_USER" -p"$DB_PASS" --single-transaction "$db_name" 2> "$TMP_ERR" | gzip | \
             openssl enc -aes-256-cbc -salt -pass pass:"$ENCRYPTION_KEY" | aws s3 cp - "${CLOUD_BUCKET}/${remote_file}"
         else
-            mysqldump -u"$DB_USER" -p"$DB_PASS" --single-transaction "$db_name" | gzip | aws s3 cp - "${CLOUD_BUCKET}/${remote_file}"
+            mysqldump -u"$DB_USER" -p"$DB_PASS" --single-transaction "$db_name" 2> "$TMP_ERR" | gzip | aws s3 cp - "${CLOUD_BUCKET}/${remote_file}"
         fi
-        if [ $? -ne 0 ]; then
-            log_check_message "[error] Error during S3 backup for ${db_name}"
+        local PIPE_EXIT=$?
+        if [ $PIPE_EXIT -ne 0 ] || [ -s "$TMP_ERR" ]; then
+            log_check_message "[error] Error during S3 backup for ${db_name}: $(cat "$TMP_ERR")"
             ((ERROR_COUNT++))
         else
             log_check_message "[info] S3 backup for ${db_name} completed: ${remote_file}"
         fi
+
     elif [ "$MODE" == "gcp" ]; then
-        # GCP backup: use gsutil to copy to the bucket defined in CLOUD_BUCKET
         local remote_file="${db_name}/${file_name}"
         if [ -n "$ENCRYPTION_KEY" ]; then
-            mysqldump -u"$DB_USER" -p"$DB_PASS" --single-transaction "$db_name" | gzip | \
+            mysqldump -u"$DB_USER" -p"$DB_PASS" --single-transaction "$db_name" 2> "$TMP_ERR" | gzip | \
             openssl enc -aes-256-cbc -salt -pass pass:"$ENCRYPTION_KEY" | gsutil cp - "${CLOUD_BUCKET}/${remote_file}"
         else
-            mysqldump -u"$DB_USER" -p"$DB_PASS" --single-transaction "$db_name" | gzip | gsutil cp - "${CLOUD_BUCKET}/${remote_file}"
+            mysqldump -u"$DB_USER" -p"$DB_PASS" --single-transaction "$db_name" 2> "$TMP_ERR" | gzip | gsutil cp - "${CLOUD_BUCKET}/${remote_file}"
         fi
-        if [ $? -ne 0 ]; then
-            log_check_message "[error] Error during GCP backup for ${db_name}"
+        local PIPE_EXIT=$?
+        if [ $PIPE_EXIT -ne 0 ] || [ -s "$TMP_ERR" ]; then
+            log_check_message "[error] Error during GCP backup for ${db_name}: $(cat "$TMP_ERR")"
             ((ERROR_COUNT++))
         else
             log_check_message "[info] GCP backup for ${db_name} completed: ${remote_file}"
         fi
+
     else
         echo "Unknown mode: $MODE. Valid modes: gcp, local, s3"
+        rm -f "$TMP_ERR"
         exit 1
     fi
+
+    rm -f "$TMP_ERR"
 }
 
 # Main function to orchestrate the backup process
@@ -164,4 +172,3 @@ main() {
 
 # Execute the script
 main
-
