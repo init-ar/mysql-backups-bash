@@ -20,11 +20,15 @@ MODE="gcp"
 LOCAL_PATH="/var/backups/databases"
 # Remote host (user@host). If empty, backups are stored locally.
 REMOTE_HOST=""
-# Default retention days (applies for local mode)
+# Default retention days (applies for local and k8s modes)
 RETENTION_DAYS=7
 
+# K8s variables
+K8S_POD=""
+K8S_NAMESPACE="default"
+
 # Process command line options
-while getopts "m:l:b:k:T:h:" opt; do
+while getopts "m:l:b:k:T:h:P:N:" opt; do
     case $opt in
         m)
             MODE=$OPTARG
@@ -44,8 +48,14 @@ while getopts "m:l:b:k:T:h:" opt; do
         h)
             REMOTE_HOST=$OPTARG
             ;;
+        P)
+            K8S_POD=$OPTARG
+            ;;
+        N)
+            K8S_NAMESPACE=$OPTARG
+            ;;
         *)
-            echo "Usage: $0 [-m mode (gcp|local|s3)] [-l backup_path] [-b cloud_bucket_path] [-k encryption_key] [-T retention_days] [-h remote_host (user@host)]"
+            echo "Usage: $0 [-m mode (gcp|local|s3|k8s)] [-l backup_path] [-b cloud_bucket_path] [-k encryption_key] [-T retention_days] [-h remote_host (user@host)] [-P k8s_pod] [-N k8s_namespace]"
             exit 1
             ;;
     esac
@@ -108,7 +118,6 @@ backup_database() {
     if [ "$MODE" == "local" ]; then
         if [ -n "$REMOTE_HOST" ]; then
             # Remote backup via SSH:
-            # Create backup in a temporary local file and then transfer via scp.
             local tmp_backup="/tmp/${file_name}"
             if [ -n "$ENCRYPTION_KEY" ]; then
                 mysqldump -u"$DB_USER" -p"$DB_PASS" --single-transaction "$db_name" | gzip | \
@@ -179,18 +188,65 @@ backup_database() {
         else
             log_check_message "[info] GCP backup for ${db_name} completed: ${remote_file}"
         fi
+    elif [ "$MODE" == "k8s" ]; then
+        # k8s backup using port-forward (outside the pod)
+        if [ -z "$K8S_POD" ]; then
+            log_check_message "[error] K8s pod not specified. Use -P to set the pod name."
+            ERROR_COUNT=$((ERROR_COUNT+1))
+            return 1
+        fi
+        local forward_port=3307
+        log_check_message "[info] Starting port-forward from pod $K8S_POD on port $forward_port"
+        kubectl port-forward "$K8S_POD" -n "$K8S_NAMESPACE" ${forward_port}:3306 &
+        PF_PID=$!
+        sleep 5  # Wait for port-forward to be established
+        local tmp_backup="/tmp/${file_name}"
+        if [ -n "$ENCRYPTION_KEY" ]; then
+            mysqldump -h 127.0.0.1 -P $forward_port -u"$DB_USER" -p"$DB_PASS" --single-transaction "$db_name" 2>/dev/null | gzip | \
+            openssl enc -aes-256-cbc -salt -pass pass:"$ENCRYPTION_KEY" > "$tmp_backup"
+        else
+            mysqldump -h 127.0.0.1 -P $forward_port -u"$DB_USER" -p"$DB_PASS" --single-transaction "$db_name" 2>/dev/null | gzip > "$tmp_backup"
+        fi
+        local dump_status=$?
+        kill $PF_PID
+        if [ $dump_status -ne 0 ]; then
+            log_check_message "[error] Error during k8s backup for ${db_name} (creating temporary file)"
+            ERROR_COUNT=$((ERROR_COUNT+1))
+            rm -f "$tmp_backup"
+            return 1
+        fi
+        if [ -n "$REMOTE_HOST" ]; then
+            log_check_message "[info] Transferring k8s backup for ${db_name} to remote host ${REMOTE_HOST}:${LOCAL_PATH}"
+            scp "$tmp_backup" "${REMOTE_HOST}:${LOCAL_PATH}/${db_name}-${BACKUP_DATE}${ext}"
+            if [ $? -ne 0 ]; then
+                log_check_message "[error] Failed to transfer k8s backup for ${db_name} to remote host"
+                ERROR_COUNT=$((ERROR_COUNT+1))
+            else
+                log_check_message "[info] Successfully transferred k8s backup for ${db_name} to remote host"
+            fi
+            rm -f "$tmp_backup"
+        else
+            local backup_dir="${LOCAL_PATH}/${db_name}"
+            mkdir -p "$backup_dir"
+            mv "$tmp_backup" "${backup_dir}/${db_name}-${BACKUP_DATE}${ext}"
+            if [ $? -ne 0 ]; then
+                log_check_message "[error] Failed to save k8s backup for ${db_name} locally"
+                ERROR_COUNT=$((ERROR_COUNT+1))
+            else
+                log_check_message "[info] k8s backup for ${db_name} completed locally: ${backup_dir}/${db_name}-${BACKUP_DATE}${ext}"
+            fi
+        fi
     else
-        echo "Unknown mode: $MODE. Valid modes: gcp, local, s3"
+        echo "Unknown mode: $MODE. Valid modes: gcp, local, s3, k8s"
         exit 1
     fi
 }
 
-# Function to apply retention policy for local backups
+# Function to apply retention policy for local backups (and k8s backups stored locally)
 apply_retention_policy() {
     log_check_message "[info] Applying retention policy: deleting backups older than ${RETENTION_DAYS} days."
-    if [ "$MODE" == "local" ]; then
+    if [ "$MODE" == "local" ] || [ "$MODE" == "k8s" ]; then
         if [ -n "$REMOTE_HOST" ]; then
-            # Remote retention: use SSH to delete old backups in the remote path
             ssh "$REMOTE_HOST" "find \"$LOCAL_PATH\" -type f -mtime +${RETENTION_DAYS} -delete"
             if [ $? -eq 0 ]; then
                 log_check_message "[info] Retention policy applied successfully on remote destination."
@@ -217,7 +273,7 @@ main() {
         backup_database "$db"
     done
 
-    # Apply retention policy if in local mode
+    # Apply retention policy if in local or k8s mode
     apply_retention_policy
 
     if [ $ERROR_COUNT -gt 0 ]; then
