@@ -55,9 +55,43 @@ while getopts "m:l:b:k:T:h:P:N:" opt; do
             K8S_NAMESPACE=$OPTARG
             ;;
         *)
-            echo "Usage: $0 [-m mode (gcp|local|s3|k8s)] [-l backup_path] [-b cloud_bucket_path] [-k encryption_key] [-T retention_days] [-h remote_host (user@host)] [-P k8s_pod] [-N k8s_namespace]"
-            exit 1
-            ;;
+
+cat << 'EOF'
+Usage: $0 [options]
+
+Options:
+  -m  Mode of backup. Valid options:
+         gcp   -> Backup to a Google Cloud Storage bucket.
+         local -> Backup to a local folder.
+         s3    -> Backup to an AWS S3 bucket.
+         k8s   -> Backup from a Kubernetes pod (using port-forward).
+         
+  -l  Backup path:
+         For 'local' mode, this is the destination folder on the local system.
+         For remote transfers (when using -h), this is the folder on the remote host.
+         
+  -b  Cloud bucket path (for gcp and s3 modes). Example:
+         gs://my-bucket/path or s3://my-bucket/path
+         
+  -k  Encryption key to encrypt the backup using AES-256-CBC.
+  
+  -T  Retention days: number of days to keep backup files.
+  
+  -h  Remote host for transferring backups (format: user@host).
+  
+  -P  Kubernetes pod name (required for k8s mode).
+  
+  -N  Kubernetes namespace (optional for k8s mode; default is 'default').
+
+Examples:
+  $0 -m local -l /backups/mysql -T 7
+  $0 -m gcp -b gs://my-bucket/path -k mysecret
+  $0 -m k8s -P my-mysql-pod -N my-namespace -l /backups/mysql
+  $0 -m local -l /backups/mysql -h user@remotehost
+
+EOF
+exit 1
+;;
     esac
 done
 shift $((OPTIND - 1))
