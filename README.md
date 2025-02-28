@@ -1,3 +1,7 @@
+*[English](#english) | [Español](#español)*
+
+# English
+
 # Database Backup Script Documentation
 
 ## Overview
@@ -113,6 +117,8 @@ All operations are logged to the file specified in `LOG_FILE` with timestamps an
 - If using remote transfer, ensure SSH keys are properly configured
 
 ---
+
+# Español
 
 # Documentación del Script de Respaldo de Bases de Datos
 
