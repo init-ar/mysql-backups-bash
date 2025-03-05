@@ -1,31 +1,42 @@
 #!/bin/bash
 set -o pipefail
 
-# Global variables
-DB_USER="user_backups"
-DB_PASS="PASSWD"
-DEFAULT_CLOUD_BUCKET="gs://bucket-backups-servers/databases"
-CLOUD_BUCKET="$DEFAULT_CLOUD_BUCKET"
+# Cargar configuraciones externas (si existe)
+CONFIG_FILE="$(dirname "$0")/mysql-databases.conf"
+if [ -f "$CONFIG_FILE" ]; then
+    source "$CONFIG_FILE"
+fi
+
+# Variables por defecto (se usan en caso de que no estén definidas en el config)
+: ${DB_USER:="default_user"}
+: ${DB_PASS:="default_pass"}
+: ${DEFAULT_CLOUD_BUCKET:="gs://bucket-backups-servers/databases"}
+: ${CLOUD_BUCKET:="$DEFAULT_CLOUD_BUCKET"}
+: ${LOCAL_PATH:="/var/backups/databases"}
+: ${REMOTE_HOST:=""}
+: ${RETENTION_DAYS:=7}
+: ${ENCRYPTION_KEY:=""}
+: ${MODE:="gcp"}
+: ${K8S_POD:=""}
+: ${K8S_NAMESPACE:="default"}
+
 LOG_FILE="/var/log/backups-databases.log"
-# Timestamp format: YYYYMMDD-hhmm
 BACKUP_DATE=$(date +%Y%m%d-%H%M)
 ERROR_COUNT=0
-ENCRYPTION_KEY=""  # Default: no encryption
 
-# Default mode is "gcp"
-MODE="gcp"
-# Default backup path for local backups.
-# For local mode, this is the local folder.
-# For remote mode, this is the destination folder on the remote host.
-LOCAL_PATH="/var/backups/databases"
-# Remote host (user@host). If empty, backups are stored locally.
-REMOTE_HOST=""
-# Default retention days (applies for local and k8s modes)
-RETENTION_DAYS=7
-
-# K8s variables
-K8S_POD=""
-K8S_NAMESPACE="default"
+# Función para actualizar el script vía Git
+update_script() {
+    local script_dir
+    script_dir="$(dirname "$0")"
+    log_check_message "[info] Updating script in directory ${script_dir}"
+    cd "$script_dir" || { log_check_message "[error] Failed to change directory"; return 1; }
+    git pull origin master
+    if [ $? -eq 0 ]; then
+        log_check_message "[info] Script updated successfully."
+    else
+        log_check_message "[error] Script update failed."
+    fi
+}
 
 # Process command line options
 while getopts "m:l:b:k:T:h:P:N:" opt; do
