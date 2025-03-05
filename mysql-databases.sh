@@ -3,7 +3,7 @@ set -o pipefail
 
 # Ruta del archivo de configuración.
 # Puedes ajustar la ruta si lo deseas, por ejemplo: /etc/backup_script.conf
-CONFIG_FILE="$(dirname "$0")/backup_script.conf"
+CONFIG_FILE="$(dirname "$0")/mysql-databases.conf"
 if [ -f "$CONFIG_FILE" ]; then
     source "$CONFIG_FILE"
 fi
