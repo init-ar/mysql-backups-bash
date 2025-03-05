@@ -1,13 +1,14 @@
 #!/bin/bash
 set -o pipefail
 
-# Cargar configuraciones externas (si existe)
-CONFIG_FILE="$(dirname "$0")/mysql-databases.conf"
+# Ruta del archivo de configuración.
+# Puedes ajustar la ruta si lo deseas, por ejemplo: /etc/backup_script.conf
+CONFIG_FILE="$(dirname "$0")/backup_script.conf"
 if [ -f "$CONFIG_FILE" ]; then
     source "$CONFIG_FILE"
 fi
 
-# Variables por defecto (se usan en caso de que no estén definidas en el config)
+# Asignar valores por defecto en caso de que no se hayan definido en el archivo de configuración.
 : ${DB_USER:="default_user"}
 : ${DB_PASS:="default_pass"}
 : ${DEFAULT_CLOUD_BUCKET:="gs://bucket-backups-servers/databases"}
@@ -23,20 +24,6 @@ fi
 LOG_FILE="/var/log/backups-databases.log"
 BACKUP_DATE=$(date +%Y%m%d-%H%M)
 ERROR_COUNT=0
-
-# Función para actualizar el script vía Git
-update_script() {
-    local script_dir
-    script_dir="$(dirname "$0")"
-    log_check_message "[info] Updating script in directory ${script_dir}"
-    cd "$script_dir" || { log_check_message "[error] Failed to change directory"; return 1; }
-    git pull origin master
-    if [ $? -eq 0 ]; then
-        log_check_message "[info] Script updated successfully."
-    else
-        log_check_message "[error] Script update failed."
-    fi
-}
 
 # Process command line options
 while getopts "m:l:b:k:T:h:P:N:" opt; do
