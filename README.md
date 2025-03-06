@@ -30,6 +30,23 @@ This script is designed for automated MySQL database backups with support for mu
   - AWS CLI for S3 backups
 - `kubectl` if using Kubernetes mode
 
+### Creating a MySQL Backup User
+
+Use the following SQL commands to create a backup user with minimal privileges required to run `mysqldump`:
+
+```sql
+-- Create the backup user
+CREATE USER 'user_backups'@'localhost' IDENTIFIED BY 'PASSWD';
+
+-- Grant backup privileges (read-only access to all databases)
+GRANT SELECT, SHOW VIEW, PROCESS, RELOAD, LOCK TABLES, REPLICATION CLIENT ON *.* TO 'user_backups'@'localhost';
+
+-- Apply privileges
+FLUSH PRIVILEGES;
+```
+
+Make sure to replace `'PASSWD'` with a strong password and update the corresponding value in the script.
+
 ## Usage
 
 ```bash
@@ -148,6 +165,23 @@ Este script está diseñado para automatizar los respaldos de bases de datos MyS
   - AWS CLI para respaldos en S3
 - `kubectl` si se usa el modo Kubernetes
 
+### Creación del Usuario de Backup en MySQL
+
+Utiliza los siguientes comandos SQL para crear un usuario de backup con los privilegios mínimos necesarios para ejecutar `mysqldump`:
+
+```sql
+-- Crear el usuario de backup
+CREATE USER 'user_backups'@'localhost' IDENTIFIED BY 'PASSWD';
+
+-- Otorgar privilegios de backup (acceso de solo lectura a todas las bases de datos)
+GRANT SELECT, SHOW VIEW, PROCESS, RELOAD, LOCK TABLES, REPLICATION CLIENT ON *.* TO 'user_backups'@'localhost';
+
+-- Aplicar privilegios
+FLUSH PRIVILEGES;
+```
+
+Asegúrate de reemplazar `'PASSWD'` con una contraseña segura y actualizar el valor correspondiente en el script.
+
 ## Uso
 
 ```bash
@@ -233,3 +267,4 @@ Todas las operaciones se registran en el archivo especificado en `LOG_FILE` con 
 - Considere usar variables de entorno o un gestor de credenciales seguro
 - La gestión de claves de cifrado debe seguir las mejores prácticas de seguridad
 - Si se utiliza transferencia remota, asegúrese de que las claves SSH estén configuradas correctamente
+
