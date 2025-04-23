@@ -15,11 +15,13 @@ GPG symmetric encryption uses a passphrase to derive an encryption key via Strin
 ## Script Configuration  
 1. Place the script (e.g. `backup-databases.sh`) in a chosen directory.  
 2. Create a config file `mysql-databases.conf` alongside it with variables:  
+```    
     - DB_USER, DB_PASS  
     - DEFAULT_CLOUD_BUCKET, CLOUD_BUCKET  
     - LOCAL_PATH, REMOTE_HOST  
     - RETENTION_DAYS, ENCRYPTION_KEY  
     - MODE (gcp, local, s3, k8s), K8S_POD, K8S_NAMESPACE  
+```
 3. Ensure `ENCRYPTION_KEY` is set to your GPG passphrase.  
 
 ## Script Overview  
@@ -36,6 +38,7 @@ GPG symmetric encryption uses a passphrase to derive an encryption key via Strin
 
 ## Manual Decryption  
 To decrypt a backup file (e.g. `db-20250422-1200.sql.gz.gpg`):  
+```
     gpg --batch --yes   
         --decrypt   
         --passphrase "YOUR_PASSPHRASE"   
@@ -43,9 +46,10 @@ To decrypt a backup file (e.g. `db-20250422-1200.sql.gz.gpg`):
         --output db-20250422-1200.sql.gz   
         db-20250422-1200.sql.gz.gpg  
     gzip -d db-20250422-1200.sql.gz  
-
+```
 ## Logrotate Integration  
 Create `/etc/logrotate.d/backups-databases` with:  
+```
     /var/log/backups-databases.log {  
         daily                  # rotate each day  
         rotate 7               # keep 7 days  
@@ -56,8 +60,9 @@ Create `/etc/logrotate.d/backups-databases` with:
         notifempty             # do not rotate empty files  
         create 640 root adm    # permissions and ownership  
     }  
-
+```
 Test configuration:  
+    
     logrotate --debug /etc/logrotate.d/backups-databases  
 
 ---
@@ -76,13 +81,15 @@ GPG simétrico deriva la clave desde la contraseña con S2K SHA256 e iteraciones
 
 ## Configuración del Script  
 1. Copia el script (`backup-databases.sh`) en el directorio deseado.  
-2. Crea `mysql-databases.conf` al lado con variables:  
+2. Crea `mysql-databases.conf` al lado con variables:
+```   
     - DB_USER, DB_PASS  
     - DEFAULT_CLOUD_BUCKET, CLOUD_BUCKET  
     - LOCAL_PATH, REMOTE_HOST  
     - RETENTION_DAYS, ENCRYPTION_KEY  
-    - MODE (gcp, local, s3, k8s), K8S_POD, K8S_NAMESPACE  
-3. Asegura que `ENCRYPTION_KEY` contenga tu passphrase de GPG.  
+    - MODE (gcp, local, s3, k8s), K8S_POD, K8S_NAMESPACE
+```
+4. Asegura que `ENCRYPTION_KEY` contenga tu passphrase de GPG.  
 
 ## Descripción del Script  
 - **Logging**: `/var/log/backups-databases.log` con timestamps.  
@@ -98,6 +105,8 @@ GPG simétrico deriva la clave desde la contraseña con S2K SHA256 e iteraciones
 
 ## Desencriptado Manual  
 Para desencriptar un archivo (por ej. `db-20250422-1200.sql.gz.gpg`):  
+
+```
     gpg --batch --yes   
         --decrypt   
         --passphrase "TU_PASSPHRASE"   
@@ -105,10 +114,11 @@ Para desencriptar un archivo (por ej. `db-20250422-1200.sql.gz.gpg`):
         --output db-20250422-1200.sql.gz   
         db-20250422-1200.sql.gz.gpg  
     gzip -d db-20250422-1200.sql.gz  
-
+```
 ## Integración con Logrotate  
 Crea `/etc/logrotate.d/backups-databases`:  
-    /var/log/backups-databases.log {  
+```
+/var/log/backups-databases.log {  
         daily                  # rota diario  
         rotate 7               # conserva 7 días  
         compress               # comprime logs antiguos  
@@ -118,6 +128,8 @@ Crea `/etc/logrotate.d/backups-databases`:
         notifempty             # no rota logs vacíos  
         create 640 root adm    # permisos y dueño  
     }  
-
+```
 Prueba la configuración:  
-    logrotate --debug /etc/logrotate.d/backups-databases  
+```    
+logrotate --debug /etc/logrotate.d/backups-databases  
+```
