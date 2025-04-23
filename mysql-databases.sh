@@ -41,7 +41,7 @@ Usage: $0 [options]
   -m  modo: gcp, local, s3, k8s
   -l  ruta local
   -b  bucket (gs:// o s3://)
-  -k  passphrase para GPG
+  -k  passphrase para GPG (opcional)
   -T  días de retención
   -h  user@host remoto
   -P  pod k8s
@@ -62,7 +62,8 @@ log_check_message() {
 get_db_names() {
   log_check_message "[info] Listando bases de datos"
   local excluded="information_schema performance_schema sys"
-  local all_dbs=$(mysql -u"$DB_USER" -p"$DB_PASS" -e "SHOW DATABASES;" 2>/dev/null | tail -n +2)
+  local all_dbs
+  all_dbs=$(mysql -u"$DB_USER" -p"$DB_PASS" -e "SHOW DATABASES;" 2>/dev/null | tail -n +2)
   [[ $? -ne 0 ]] && { log_check_message "[error] No se pudo listar DBs"; exit 1; }
   for db in $all_dbs; do
     [[ " $excluded " =~ " $db " ]] || dbs+=("$db")
@@ -72,7 +73,7 @@ get_db_names() {
 }
 
 encrypt_with_gpg() {
-  # $1: fichero de entrada stdin, $2: fichero de salida
+  # $1: input file (stdin if "-"), $2: output file
   gpg --batch --yes \
       --passphrase "$ENCRYPTION_KEY" \
       --symmetric \
@@ -84,44 +85,48 @@ encrypt_with_gpg() {
 
 backup_database() {
   local db="$1"
-  local ext=".sql.gz.gpg"
+  local ext
+  [[ -n "$ENCRYPTION_KEY" ]] && ext=".sql.gz.gpg" || ext=".sql.gz"
   local file="${db}-${BACKUP_DATE}${ext}"
+  local tmp="/tmp/${file}"
 
   log_check_message "[info] Iniciando backup $db"
 
-  case $MODE in
-    local|k8s)
-      local tmp="/tmp/${file}"
-      mkdir -p "/tmp"
-      mysqldump -u"$DB_USER" -p"$DB_PASS" --single-transaction "$db" 2>/dev/null | gzip | encrypt_with_gpg - "$tmp"
-      if [[ $? -ne 0 ]]; then
-        log_check_message "[error] Backup fallido $db"
-        ((ERROR_COUNT++))
-        rm -f "$tmp"
-        return 1
-      fi
+  # Crear temporal
+  mkdir -p "/tmp"
 
-      if [[ -n "$REMOTE_HOST" ]]; then
-        log_check_message "[info] Enviando $db a $REMOTE_HOST:$LOCAL_PATH"
-        scp "$tmp" "${REMOTE_HOST}:${LOCAL_PATH}/${file}"
-      else
-        mkdir -p "${LOCAL_PATH}/${db}"
-        mv "$tmp" "${LOCAL_PATH}/${db}/${file}"
-      fi
-      ;;
-    s3)
-      mysqldump -u"$DB_USER" -p"$DB_PASS" --single-transaction "$db" | gzip | encrypt_with_gpg - >(aws s3 cp - "${CLOUD_BUCKET}/${db}/${file}")
-      ;;
-    gcp)
-      mysqldump -u"$DB_USER" -p"$DB_PASS" --single-transaction "$db" | gzip | encrypt_with_gpg - >(gsutil cp - "${CLOUD_BUCKET}/${db}/${file}")
-      ;;
-    *)
-      echo "Modo inválido: $MODE"; exit 1
-      ;;
-  esac
+  # Dump + gzip (+ GPG opcional)
+  if [[ -n "$ENCRYPTION_KEY" ]]; then
+    mysqldump -u"$DB_USER" -p"$DB_PASS" --single-transaction "$db" 2>/dev/null \
+      | gzip \
+      | encrypt_with_gpg - "$tmp"
+  else
+    mysqldump -u"$DB_USER" -p"$DB_PASS" --single-transaction "$db" 2>/dev/null \
+      | gzip > "$tmp"
+  fi
 
-  [[ $? -ne 0 ]] && { log_check_message "[error] Transferencia $db fallida"; ((ERROR_COUNT++)); } \
-                 || log_check_message "[info] Backup $db completado"
+  if [[ $? -ne 0 ]]; then
+    log_check_message "[error] Backup fallido $db"
+    ((ERROR_COUNT++))
+    rm -f "$tmp"
+    return 1
+  fi
+
+  # Transferencia
+  if [[ -n "$REMOTE_HOST" ]]; then
+    log_check_message "[info] Enviando $db a $REMOTE_HOST:$LOCAL_PATH"
+    scp "$tmp" "${REMOTE_HOST}:${LOCAL_PATH}/${file}"
+  else
+    mkdir -p "${LOCAL_PATH}/${db}"
+    mv "$tmp" "${LOCAL_PATH}/${db}/${file}"
+  fi
+
+  if [[ $? -ne 0 ]]; then
+    log_check_message "[error] Transferencia $db fallida"
+    ((ERROR_COUNT++))
+  else
+    log_check_message "[info] Backup $db completado"
+  fi
 }
 
 apply_retention_policy() {
@@ -140,7 +145,7 @@ main() {
     backup_database "$db"
   done
   apply_retention_policy
-  if ((ERROR_COUNT>0)); then
+  if (( ERROR_COUNT > 0 )); then
     log_check_message "[error] Finalizado con errores: $ERROR_COUNT"
     exit 1
   else
