@@ -11,6 +11,7 @@ fi
 # Asignar valores por defecto en caso de que no se hayan definido en el archivo de configuración.
 : ${DB_USER:="default_user"}
 : ${DB_PASS:="default_pass"}
+: ${MYSQL_HOST:=""}  # Nuevo: Host remoto de MySQL (vacío = localhost)
 : ${DEFAULT_CLOUD_BUCKET:="gs://bucket-backups-servers/databases"}
 : ${CLOUD_BUCKET:="$DEFAULT_CLOUD_BUCKET"}
 : ${LOCAL_PATH:="/var/backups/databases"}
@@ -26,7 +27,7 @@ BACKUP_DATE=$(date +%Y%m%d-%H%M)
 ERROR_COUNT=0
 
 # Process command line options
-while getopts "m:l:b:k:T:h:P:N:" opt; do
+while getopts "m:l:b:k:T:h:P:N:H:" opt; do  # Añadido :H para el host MySQL
     case $opt in
         m)
             MODE=$OPTARG
@@ -52,8 +53,10 @@ while getopts "m:l:b:k:T:h:P:N:" opt; do
         N)
             K8S_NAMESPACE=$OPTARG
             ;;
+        H)  # Nuevo parámetro para host MySQL remoto
+            MYSQL_HOST=$OPTARG
+            ;;
         *)
-
 cat << 'EOF'
 Usage: $0 [options]
 
@@ -77,6 +80,8 @@ Options:
   
   -h  Remote host for transferring backups (format: user@host).
   
+  -H  MySQL host (remote server to connect to for backups).
+  
   -P  Kubernetes pod name (required for k8s mode).
   
   -N  Kubernetes namespace (optional for k8s mode; default is 'default').
@@ -86,6 +91,7 @@ Examples:
   $0 -m gcp -b gs://my-bucket/path -k mysecret
   $0 -m k8s -P my-mysql-pod -N my-namespace -l /backups/mysql
   $0 -m local -l /backups/mysql -h user@remotehost
+  $0 -m local -l /backups/mysql -H mysql-remote.example.com  # Backup remoto
 
 EOF
 exit 1
@@ -112,10 +118,14 @@ get_db_names() {
     local excluded="information_schema performance_schema sys"
     local dbs=()
     local all_dbs
-
-    all_dbs=$(mysql -u"$DB_USER" -p"$DB_PASS" -e "SHOW DATABASES;" 2>/dev/null | tail -n +2)
+    local mysql_cmd="mysql"
+    
+    # Añadir host remoto si está definido
+    [ -n "$MYSQL_HOST" ] && mysql_cmd+=" -h $MYSQL_HOST"
+    
+    all_dbs=$($mysql_cmd -u"$DB_USER" -p"$DB_PASS" -e "SHOW DATABASES;" 2>/dev/null | tail -n +2)
     if [ $? -ne 0 ]; then
-        log_check_message "[error] Error retrieving databases"
+        log_check_message "[error] Error retrieving databases. Check MySQL host connectivity"
         exit 1
     fi
 
@@ -153,7 +163,11 @@ backup_database() {
     log_check_message "[info] Starting backup for ${db_name}"
     
     # Comando base para mysqldump + compresión
-    local dump_cmd="mysqldump -u\"$DB_USER\" -p\"$DB_PASS\" --single-transaction \"$db_name\" | gzip"
+    local dump_cmd="mysqldump"
+    # Añadir host remoto si está definido (excepto en modo k8s)
+    [ -n "$MYSQL_HOST" ] && [ "$MODE" != "k8s" ] && dump_cmd+=" -h $MYSQL_HOST"
+    
+    dump_cmd+=" -u\"$DB_USER\" -p\"$DB_PASS\" --single-transaction \"$db_name\" | gzip"
     
     # Añadir encriptación GPG si hay clave
     if [ -n "$ENCRYPTION_KEY" ]; then
@@ -198,14 +212,24 @@ backup_database() {
             ;;
 
         "k8s")
-            # Modo Kubernetes
+            # Modo Kubernetes (usa port-forwarding local, ignora MYSQL_HOST)
             kubectl port-forward "$K8S_POD" -n "$K8S_NAMESPACE" 3307:3306 &
             PF_PID=$!
             sleep 5
             local tmp_backup="/tmp/${file_name}"
             eval "mysqldump -h 127.0.0.1 -P 3307 -u\"$DB_USER\" -p\"$DB_PASS\" --single-transaction \"$db_name\" | gzip" > "$tmp_backup"
             kill $PF_PID
-            # ... (resto de la lógica para transferir/mover el backup)
+            if [ -n "$REMOTE_HOST" ]; then
+                scp "$tmp_backup" "${REMOTE_HOST}:${LOCAL_PATH}/${file_name}" && \
+                log_check_message "[info] Transferred k8s backup for ${db_name}" || \
+                log_check_message "[error] Transfer failed for k8s backup ${db_name}"
+                rm -f "$tmp_backup"
+            else
+                mkdir -p "${LOCAL_PATH}/${db_name}"
+                mv "$tmp_backup" "${LOCAL_PATH}/${db_name}/${file_name}" && \
+                log_check_message "[info] K8s backup saved locally for ${db_name}" || \
+                log_check_message "[error] Failed to save k8s backup for ${db_name}"
+            fi
             ;;
     esac
 }
