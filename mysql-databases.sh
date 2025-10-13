@@ -112,6 +112,31 @@ log_check_message() {
     fi
 }
 
+# --- ADD: funciones encapsuladas para endpoint y verificación ---
+init_mysql_endpoint() {
+    # Informa qué se va a usar
+    if [ -n "$MYSQL_HOST" ] && [ "$MODE" != "k8s" ]; then
+        log_check_message "[info] Using remote MySQL host: ${MYSQL_HOST}"
+    else
+        log_check_message "[info] Using local MySQL (no -h)"
+    fi
+}
+
+test_mysql_connection() {
+    # Prueba conexión antes de dumpear
+    local mysql_cmd="mysql"
+    if [ -n "$MYSQL_HOST" ] && [ "$MODE" != "k8s" ]; then
+        mysql_cmd+=" -h ${MYSQL_HOST}"
+    fi
+    log_check_message "[info] Testing MySQL connectivity"
+    ${mysql_cmd} -u"${DB_USER}" -p"${DB_PASS}" -e "SELECT 1;" >/dev/null 2>&1
+    if [ $? -ne 0 ]; then
+        log_check_message "[error] Unable to connect to MySQL endpoint. Check host/creds/network."
+        exit 1
+    fi
+    log_check_message "[info] MySQL connectivity OK"
+}
+
 # Function to get the list of databases (excluding system databases)
 get_db_names() {
     log_check_message "[info] Starting to retrieve databases"
@@ -260,6 +285,10 @@ apply_retention_policy() {
 
 # Main function to orchestrate the backup process
 main() {
+    # ADD: llamadas no intrusivas
+    init_mysql_endpoint
+    [ "$MODE" != "k8s" ] && test_mysql_connection
+
     local db_names=($(get_db_names))
     for db in "${db_names[@]}"; do
         backup_database "$db"
