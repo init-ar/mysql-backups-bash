@@ -1,0 +1,12 @@
+# MSSQL credentials
+DB_USER="user_backups"
+DB_PASS="PASSWD"
+
+# MSSQL
+MSSQL_HOST:=""
+
+# Local backup path (for local backups or remote transfer destination)
+LOCAL_PATH="/var/backups/databases"
+
+# Retention days: number of days to keep backup files
+RETENTION_DAYS=7
