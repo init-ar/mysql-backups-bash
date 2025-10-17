@@ -53,12 +53,14 @@ backup_database() {
     local db_name="$1"
     
     local file_name="${db_name}-${BACKUP_DATE}"
+
+    local dump_cmd="sqlcmd"
     
     log_check_message "[info] Starting backup for ${db_name}"
     
     # Comando base para mysqldump + compresión
     # Construir el comando de backup paso a paso
-    dump_cmd+="sqlcmd"
+
     dump_cmd+=" -S \"$MSSQL_HOST\""
     dump_cmd+=" -U \"$DB_USER\""
     dump_cmd+=" -P \"$DB_PASS\""
