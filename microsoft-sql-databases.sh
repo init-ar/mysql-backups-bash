@@ -58,6 +58,7 @@ backup_database() {
     
     # Comando base para mysqldump + compresión
     # Construir el comando de backup paso a paso
+    dump_cmd+="sqlcmd"
     dump_cmd+=" -S \"$MSSQL_HOST\""
     dump_cmd+=" -U \"$DB_USER\""
     dump_cmd+=" -P \"$DB_PASS\""
