@@ -217,9 +217,12 @@ backup_database() {
                 rm -f "$tmp_backup"
             else
                 mkdir -p "${LOCAL_PATH}/${db_name}"
-                eval "$dump_cmd" > "${LOCAL_PATH}/${db_name}/${file_name}" && \
-                log_check_message "[info] Local backup succeeded: ${db_name}" || \
-                log_check_message "[error] Local backup failed: ${db_name}"
+                if eval "$dump_cmd" > "${LOCAL_PATH}/${db_name}/${file_name}"; then
+                    log_check_message "[info] Local backup succeeded: ${db_name}"
+                else
+                    log_check_message "[error] Local backup failed: ${db_name}"
+                    ERROR_COUNT=$((ERROR_COUNT+1))
+                fi
             fi
             ;;
 
