@@ -13,6 +13,7 @@ fi
 #: ${DB_PASS:="yelp-WALMART-coffee"}
 #: ${MSSQL_HOST:="192.168.0.249"}  # Nuevo: Host remoto de MySQL (vacío = localhost)
 #: ${LOCAL_PATH:="/var/backups/databases"}
+#: ${MAPPED_DRIVE:="Y:\"}
 #: ${RETENTION_DAYS:=7}
 
 LOG_FILE="/var/log/backups-databases.log"
@@ -48,11 +49,34 @@ get_db_names() {
     printf '%s\n' $dbs
 }
 
+backup_database() {
+    local db_name="$1"
+    
+    local file_name="${db_name}-${BACKUP_DATE}"
+    
+    log_check_message "[info] Starting backup for ${db_name}"
+    
+    # Comando base para mysqldump + compresión
+    # Construir el comando de backup paso a paso
+    dump_cmd+=" -S \"$MSSQL_HOST\""
+    dump_cmd+=" -U \"$DB_USER\""
+    dump_cmd+=" -P \"$DB_PASS\""
+    dump_cmd+=" -Q \"BACKUP DATABASE [$db_name] TO DISK = '${MAPPED_DRIVE}${db_name}.-${BACKUP_DATE}' WITH COMPRESSION, STATS=10\""
+    log_check_message "${dump_cmd}"
+
+    #mkdir -p "${LOCAL_PATH}/${db_name}"
+    #eval "$dump_cmd" > "${LOCAL_PATH}/${db_name}/${file_name}" && \
+    #log_check_message "[info] Local backup succeeded: ${db_name}" || \
+    #log_check_message "[error] Local backup failed: ${db_name}"
+
+}
+
+
 main() {
     local db_names=($(get_db_names))
-#    for db in "${db_names[@]}"; do
-#        backup_database "$db"
-#   done
+    for db in "${db_names[@]}"; do
+        backup_database "$db"
+   done
 
 #    # Apply retention policy if in local or k8s mode
 #    apply_retention_policy

@@ -8,5 +8,8 @@ MSSQL_HOST:=""
 # Local backup path (for local backups or remote transfer destination)
 LOCAL_PATH="/var/backups/databases"
 
+# Local backup path (for local backups or remote transfer destination)
+MAPPED_DRIVE="Y:"
+
 # Retention days: number of days to keep backup files
 RETENTION_DAYS=7
