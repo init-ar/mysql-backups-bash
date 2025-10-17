@@ -61,7 +61,7 @@ backup_database() {
     dump_cmd+=" -S \"$MSSQL_HOST\""
     dump_cmd+=" -U \"$DB_USER\""
     dump_cmd+=" -P \"$DB_PASS\""
-    dump_cmd+=" -Q \"BACKUP DATABASE [$db_name] TO DISK = '${MAPPED_DRIVE}${db_name}.-${BACKUP_DATE}' WITH COMPRESSION, STATS=10\""
+    dump_cmd+=" -Q \"BACKUP DATABASE [$db_name] TO DISK = '${MAPPED_DRIVE}\\${db_name}-${BACKUP_DATE}.bak' WITH COMPRESSION, STATS=10\""
     log_check_message "${dump_cmd}"
 
     #mkdir -p "${LOCAL_PATH}/${db_name}"
