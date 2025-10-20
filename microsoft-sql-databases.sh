@@ -67,10 +67,9 @@ backup_database() {
     dump_cmd+=" -Q \"BACKUP DATABASE [$db_name] TO DISK = '${MAPPED_DRIVE}\\${db_name}-${BACKUP_DATE}.bak' WITH COMPRESSION, STATS=10\""
     log_check_message "${dump_cmd}"
 
-    #mkdir -p "${LOCAL_PATH}/${db_name}"
-    #eval "$dump_cmd" > "${LOCAL_PATH}/${db_name}/${file_name}" && \
-    #log_check_message "[info] Local backup succeeded: ${db_name}" || \
-    #log_check_message "[error] Local backup failed: ${db_name}"
+    eval "$dump_cmd" && \
+    log_check_message "[info] Local backup succeeded: ${db_name}" || \
+    log_check_message "[error] Local backup failed: ${db_name}"
 
 }
 
