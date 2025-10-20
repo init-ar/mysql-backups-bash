@@ -6,7 +6,8 @@ DB_PASS="PASSWD"
 MSSQL_HOST:=""
 
 # Local backup path (for local backups or remote transfer destination)
-LOCAL_PATH="/var/backups/databases"
+LOCAL_PATH=""
+LOCAL_TMP_PATH=""
 
 # Local backup path (for local backups or remote transfer destination)
 MAPPED_DRIVE="Y:"

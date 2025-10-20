@@ -8,14 +8,6 @@ if [ -f "$CONFIG_FILE" ]; then
     source "$CONFIG_FILE"
 fi
 
-# Asignar valores por defecto en caso de que no se hayan definido en el archivo de configuración.
-#: ${DB_USER:="sa"}
-#: ${DB_PASS:="yelp-WALMART-coffee"}
-#: ${MSSQL_HOST:="192.168.0.249"}  # Nuevo: Host remoto de MySQL (vacío = localhost)
-#: ${LOCAL_PATH:="/var/backups/databases"}
-#: ${MAPPED_DRIVE:="Y:\"}
-#: ${RETENTION_DAYS:=7}
-
 LOG_FILE="/var/log/backups-databases.log"
 BACKUP_DATE=$(date +%Y%m%d-%H%M)
 ERROR_COUNT=0
@@ -84,6 +76,18 @@ backup_database() {
 
 }
 
+# Function to apply retention policy for local backups (and k8s backups stored locally)
+apply_retention_policy() {
+    log_check_message "[info] Applying retention policy: deleting backups older than ${RETENTION_DAYS} days."
+
+    find "$LOCAL_PATH" -type f -mtime +${RETENTION_DAYS} -delete
+    if [ $? -eq 0 ]; then
+        log_check_message "[info] Retention policy applied successfully on local destination ${LOCAL_PATH}."
+    else
+        log_check_message "[error] Failed to apply retention policy on local destination."
+    fi
+}
+
 
 main() {
     local db_names=($(get_db_names))
@@ -91,8 +95,8 @@ main() {
         backup_database "$db"
    done
 
-#    # Apply retention policy if in local or k8s mode
-#    apply_retention_policy
+   # Apply retention policye
+   apply_retention_policy
 
     if [ $ERROR_COUNT -gt 0 ]; then
         log_check_message "[error] Process completed with ${ERROR_COUNT} errors"
