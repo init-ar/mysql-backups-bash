@@ -52,7 +52,7 @@ get_db_names() {
 backup_database() {
     local db_name="$1"
     
-    local file_name="${db_name}-${BACKUP_DATE}"
+    local file_name="${db_name}-${BACKUP_DATE}.bak"
 
     local dump_cmd="sqlcmd"
     
@@ -64,12 +64,23 @@ backup_database() {
     dump_cmd+=" -S \"$MSSQL_HOST\""
     dump_cmd+=" -U \"$DB_USER\""
     dump_cmd+=" -P \"$DB_PASS\""
-    dump_cmd+=" -Q \"BACKUP DATABASE [$db_name] TO DISK = '${MAPPED_DRIVE}\\${db_name}-${BACKUP_DATE}.bak' WITH COMPRESSION, STATS=10\""
-    log_check_message "${dump_cmd}"
+    dump_cmd+=" -Q \"BACKUP DATABASE [$db_name] TO DISK = '${MAPPED_DRIVE}\\${file_name}' WITH COMPRESSION, STATS=10\""
 
     eval "$dump_cmd" && \
     log_check_message "[info] Local backup succeeded: ${db_name}" || \
     log_check_message "[error] Local backup failed: ${db_name}"
+
+    local copy_dump="cp ${LOCAL_TMP_DUMP_PATH}/${file_name} ${LOCAL_PATH}"
+
+    eval "$copy_dump" && \
+    log_check_message "[info] Local copy succeeded: ${db_name}" || \
+    log_check_message "[error] Local copy failed: ${db_name}"
+
+    local delete_dump="rm ${LOCAL_TMP_DUMP_PATH}/${file_name}"
+
+    eval "$delete_dump" && \
+    log_check_message "[info] Succesfully deleted: ${db_name}" || \
+    log_check_message "[error] Delete failed: ${db_name}"
 
 }
 
