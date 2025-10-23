@@ -10,8 +10,8 @@ LOCAL_PATH=""
 LOCAL_TMP_DUMP_PATH=""
 
 # Databases to exclude (Separate with coma)
-# EXCLUDED_DATABASES="'model','tempdb'"
-EXCLUDED_DATABASES=""
+# EXCLUDED_DBS="'model','tempdb'"
+EXCLUDED_DBS=""
 
 # Local backup path (for local backups or remote transfer destination)
 MAPPED_DRIVE="Y:"
