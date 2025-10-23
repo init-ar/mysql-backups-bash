@@ -7,7 +7,11 @@ MSSQL_HOST:=""
 
 # Local backup path (for local backups or remote transfer destination)
 LOCAL_PATH=""
-LOCAL_TMP_PATH=""
+LOCAL_TMP_DUMP_PATH=""
+
+# Databases to exclude (Separate with coma)
+# EXCLUDED_DATABASES="'model','tempdb'"
+EXCLUDED_DATABASES=""
 
 # Local backup path (for local backups or remote transfer destination)
 MAPPED_DRIVE="Y:"

@@ -1,6 +1,9 @@
 #!/bin/bash
 set -o pipefail
 
+# Configurar PATH para incluir sqlcmd
+export PATH="/opt/mssql-tools/bin:$PATH"
+
 # Ruta del archivo de configuración.
 # Puedes ajustar la ruta si lo deseas, por ejemplo: /etc/backup_script.conf
 CONFIG_FILE="$(dirname "$0")/mssql.conf"
@@ -25,12 +28,11 @@ log_check_message() {
 
 get_db_names() {
     log_check_message "[info] Starting to retrieve databases"
-    local excluded_dbs="'model','tempdb','IECS_DW_TEST','IECS_ST_TEST'"
     local sqlcmd_cmd="sqlcmd"
 
     [ -n "$MSSQL_HOST" ] && sqlcmd_cmd+=" -S $MSSQL_HOST"
 
-    local dbs=$($sqlcmd_cmd -U "$DB_USER" -P "$DB_PASS" -Q "SET NOCOUNT ON; SELECT name FROM sys.databases WHERE state = 0 AND name NOT IN ($excluded_dbs)" -h -1 2>/dev/null | grep -v '^$')
+    local dbs=$($sqlcmd_cmd -U "$DB_USER" -P "$DB_PASS" -Q "SET NOCOUNT ON; SELECT name FROM sys.databases WHERE state = 0 AND name NOT IN ($EXCLUDED_DBS)" -h -1 2>/dev/null | grep -v '^$')
 
     if [ $? -ne 0 ] || [ -z "$dbs" ]; then
         log_check_message "[error] Error retrieving databases"
@@ -41,7 +43,7 @@ get_db_names() {
     printf '%s\n' $dbs
 }
 
-backup_database() {
+backup_mssql_database() {
     local db_name="$1"
     
     local file_name="${db_name}-${BACKUP_DATE}.bak"
@@ -92,10 +94,10 @@ apply_retention_policy() {
 main() {
     local db_names=($(get_db_names))
     for db in "${db_names[@]}"; do
-        backup_database "$db"
+        backup_mssql_database "$db"
    done
 
-   # Apply retention policye
+   # Apply retention policys
    apply_retention_policy
 
     if [ $ERROR_COUNT -gt 0 ]; then
