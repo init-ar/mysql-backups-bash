@@ -1,0 +1,20 @@
+# MSSQL credentials
+DB_USER="user_backups"
+DB_PASS="PASSWD"
+
+# MSSQL
+MSSQL_HOST:=""
+
+# Local backup path (for local backups or remote transfer destination)
+LOCAL_PATH=""
+LOCAL_TMP_DUMP_PATH=""
+
+# Databases to exclude (Separate with coma)
+# EXCLUDED_DBS="'model','tempdb'"
+EXCLUDED_DBS=""
+
+# Local backup path (for local backups or remote transfer destination)
+MAPPED_DRIVE="Y:"
+
+# Retention days: number of days to keep backup files
+RETENTION_DAYS=7
