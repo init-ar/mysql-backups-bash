@@ -187,3 +187,57 @@ backup_mysql_database() {
             ;;
     esac
 }
+
+### MSSQL Functions ###
+
+get_mssql_db_names() {
+    log_check_message "[info] Starting to retrieve databases"
+    local sqlcmd_cmd="sqlcmd"
+
+    [ -n "$MSSQL_HOST" ] && sqlcmd_cmd+=" -S $MSSQL_HOST"
+
+    local dbs=$($sqlcmd_cmd -U "$DB_USER" -P "$DB_PASS" -Q "SET NOCOUNT ON; SELECT name FROM sys.databases WHERE state = 0 AND name NOT IN ($EXCLUDED_DBS)" -h -1 2>/dev/null | grep -v '^$')
+
+    if [ $? -ne 0 ] || [ -z "$dbs" ]; then
+        log_check_message "[error] Error retrieving databases"
+        exit 1
+    fi
+
+    log_check_message "[info] Retrieved databases: $dbs"
+    printf '%s\n' $dbs
+}
+
+backup_mssql_database() {
+    local db_name="$1"
+    
+    local file_name="${db_name}-${BACKUP_DATE}.bak"
+
+    local dump_cmd="sqlcmd"
+    
+    log_check_message "[info] Starting backup for ${db_name}"
+    
+    # Comando base para mysqldump + compresión
+    # Construir el comando de backup paso a paso
+
+    dump_cmd+=" -S \"$MSSQL_HOST\""
+    dump_cmd+=" -U \"$DB_USER\""
+    dump_cmd+=" -P \"$DB_PASS\""
+    dump_cmd+=" -Q \"BACKUP DATABASE [$db_name] TO DISK = '${MAPPED_DRIVE}\\${file_name}' WITH COMPRESSION, STATS=10\""
+
+    eval "$dump_cmd" && \
+    log_check_message "[info] Local backup succeeded: ${db_name}" || \
+    log_check_message "[error] Local backup failed: ${db_name}"
+
+    local copy_dump="cp ${LOCAL_TMP_DUMP_PATH}/${file_name} ${LOCAL_PATH}"
+
+    eval "$copy_dump" && \
+    log_check_message "[info] Local copy succeeded: ${db_name}" || \
+    log_check_message "[error] Local copy failed: ${db_name}"
+
+    local delete_dump="rm ${LOCAL_TMP_DUMP_PATH}/${file_name}"
+
+    eval "$delete_dump" && \
+    log_check_message "[info] Succesfully deleted: ${db_name}" || \
+    log_check_message "[error] Delete failed: ${db_name}"
+
+}
