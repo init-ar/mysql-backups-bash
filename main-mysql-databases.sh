@@ -112,7 +112,7 @@ main() {
 
     local db_names=($(get_mysql_db_names))
     for db in "${db_names[@]}"; do
-        backup__mysql_database "$db"
+        backup_mysql_database "$db"
     done
 
     # Apply retention policy if in local or k8s mode

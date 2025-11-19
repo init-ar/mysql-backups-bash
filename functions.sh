@@ -64,7 +64,7 @@ test_mysql_connection() {
 }
 
 # Function to get the list of databases (excluding system databases)
-get_mysql_db_names_mysql() {
+get_mysql_db_names() {
     log_check_message "[info] Starting to retrieve databases"
     local excluded="information_schema performance_schema sys"
     local dbs=()
