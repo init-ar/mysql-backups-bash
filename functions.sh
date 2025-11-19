@@ -1,104 +1,4 @@
-#!/bin/bash
-set -o pipefail
-
-# Ruta del archivo de configuración.
-# Puedes ajustar la ruta si lo deseas, por ejemplo: /etc/backup_script.conf
-CONFIG_FILE="$(dirname "$0")/mysql-databases.conf"
-if [ -f "$CONFIG_FILE" ]; then
-    source "$CONFIG_FILE"
-fi
-
-# Asignar valores por defecto en caso de que no se hayan definido en el archivo de configuración.
-: ${DB_USER:="default_user"}
-: ${DB_PASS:="default_pass"}
-: ${MYSQL_HOST:=""}  # Nuevo: Host remoto de MySQL (vacío = localhost)
-: ${DEFAULT_CLOUD_BUCKET:="gs://bucket-backups-servers/databases"}
-: ${CLOUD_BUCKET:="$DEFAULT_CLOUD_BUCKET"}
-: ${LOCAL_PATH:="/var/backups/databases"}
-: ${REMOTE_HOST:=""}
-: ${RETENTION_DAYS:=7}
-: ${ENCRYPTION_KEY:=""}
-: ${MODE:="gcp"}
-: ${K8S_POD:=""}
-: ${K8S_NAMESPACE:="default"}
-
-LOG_FILE="/var/log/backups-databases.log"
-BACKUP_DATE=$(date +%Y%m%d-%H%M)
-ERROR_COUNT=0
-
-# Process command line options
-while getopts "m:l:b:k:T:h:P:N:H:" opt; do  # Añadido :H para el host MySQL
-    case $opt in
-        m)
-            MODE=$OPTARG
-            ;;
-        l)
-            LOCAL_PATH=$OPTARG
-            ;;
-        b)
-            CLOUD_BUCKET=$OPTARG
-            ;;
-        k)
-            ENCRYPTION_KEY=$OPTARG
-            ;;
-        T)
-            RETENTION_DAYS=$OPTARG
-            ;;
-        h)
-            REMOTE_HOST=$OPTARG
-            ;;
-        P)
-            K8S_POD=$OPTARG
-            ;;
-        N)
-            K8S_NAMESPACE=$OPTARG
-            ;;
-        H)  # Nuevo parámetro para host MySQL remoto
-            MYSQL_HOST=$OPTARG
-            ;;
-        *)
-cat << 'EOF'
-Usage: $0 [options]
-
-Options:
-  -m  Mode of backup. Valid options:
-         gcp   -> Backup to a Google Cloud Storage bucket.
-         local -> Backup to a local folder.
-         s3    -> Backup to an AWS S3 bucket.
-         k8s   -> Backup from a Kubernetes pod (using port-forward).
-         
-  -l  Backup path:
-         For 'local' mode, this is the destination folder on the local system.
-         For remote transfers (when using -h), this is the folder on the remote host.
-         
-  -b  Cloud bucket path (for gcp and s3 modes). Example:
-         gs://my-bucket/path or s3://my-bucket/path
-         
-  -k  Encryption key to encrypt the backup using AES-256-CBC.
-  
-  -T  Retention days: number of days to keep backup files.
-  
-  -h  Remote host for transferring backups (format: user@host).
-  
-  -H  MySQL host (remote server to connect to for backups).
-  
-  -P  Kubernetes pod name (required for k8s mode).
-  
-  -N  Kubernetes namespace (optional for k8s mode; default is 'default').
-
-Examples:
-  $0 -m local -l /backups/mysql -T 7
-  $0 -m gcp -b gs://my-bucket/path -k mysecret
-  $0 -m k8s -P my-mysql-pod -N my-namespace -l /backups/mysql
-  $0 -m local -l /backups/mysql -h user@remotehost
-  $0 -m local -l /backups/mysql -H mysql-remote.example.com  # Backup remoto
-
-EOF
-exit 1
-;;
-    esac
-done
-shift $((OPTIND - 1))
+### Common functions ###
 
 # Logging function with formatted timestamp and error checking
 log_check_message() {
@@ -111,6 +11,32 @@ log_check_message() {
         exit 1
     fi
 }
+
+# Function to apply retention policy for local backups (and k8s backups stored locally)
+apply_retention_policy() {
+    log_check_message "[info] Applying retention policy: deleting backups older than ${RETENTION_DAYS} days."
+    if [ "$MODE" == "local" ] || [ "$MODE" == "k8s" ]; then
+        if [ -n "$REMOTE_HOST" ]; then
+            ssh "$REMOTE_HOST" "find \"$LOCAL_PATH\" -type f -mtime +${RETENTION_DAYS} -delete"
+            if [ $? -eq 0 ]; then
+                log_check_message "[info] Retention policy applied successfully on remote destination."
+            else
+                log_check_message "[error] Failed to apply retention policy on remote destination."
+            fi
+        else
+            find "$LOCAL_PATH" -type f -mtime +${RETENTION_DAYS} -delete
+            if [ $? -eq 0 ]; then
+                log_check_message "[info] Retention policy applied successfully on local destination."
+            else
+                log_check_message "[error] Failed to apply retention policy on local destination."
+            fi
+        fi
+    else
+        log_check_message "[info] Retention policy not applied for mode ${MODE}."
+    fi
+}
+
+### MySQL Functions ###
 
 # --- ADD: funciones encapsuladas para endpoint y verificación ---
 init_mysql_endpoint() {
@@ -138,7 +64,7 @@ test_mysql_connection() {
 }
 
 # Function to get the list of databases (excluding system databases)
-get_db_names() {
+get_mysql_db_names() {
     log_check_message "[info] Starting to retrieve databases"
     local excluded="information_schema performance_schema sys"
     local dbs=()
@@ -172,7 +98,7 @@ get_db_names() {
 }
 
 # Function to perform backup for a single database
-backup_database() {
+backup_mysql_database() {
     local db_name="$1"
     local ext=".sql.gz"  # Extensión base
     local gpg_ext=".gpg"
@@ -262,52 +188,56 @@ backup_database() {
     esac
 }
 
-# Function to apply retention policy for local backups (and k8s backups stored locally)
-apply_retention_policy() {
-    log_check_message "[info] Applying retention policy: deleting backups older than ${RETENTION_DAYS} days."
-    if [ "$MODE" == "local" ] || [ "$MODE" == "k8s" ]; then
-        if [ -n "$REMOTE_HOST" ]; then
-            ssh "$REMOTE_HOST" "find \"$LOCAL_PATH\" -type f -mtime +${RETENTION_DAYS} -delete"
-            if [ $? -eq 0 ]; then
-                log_check_message "[info] Retention policy applied successfully on remote destination."
-            else
-                log_check_message "[error] Failed to apply retention policy on remote destination."
-            fi
-        else
-            find "$LOCAL_PATH" -type f -mtime +${RETENTION_DAYS} -delete
-            if [ $? -eq 0 ]; then
-                log_check_message "[info] Retention policy applied successfully on local destination."
-            else
-                log_check_message "[error] Failed to apply retention policy on local destination."
-            fi
-        fi
-    else
-        log_check_message "[info] Retention policy not applied for mode ${MODE}."
-    fi
-}
+### MSSQL Functions ###
 
-# Main function to orchestrate the backup process
-main() {
-    # ADD: llamadas no intrusivas
-    init_mysql_endpoint
-    [ "$MODE" != "k8s" ] && test_mysql_connection
+get_mssql_db_names() {
+    log_check_message "[info] Starting to retrieve databases"
+    local sqlcmd_cmd="sqlcmd"
 
-    local db_names=($(get_db_names))
-    for db in "${db_names[@]}"; do
-        backup_database "$db"
-    done
+    [ -n "$MSSQL_HOST" ] && sqlcmd_cmd+=" -S $MSSQL_HOST"
 
-    # Apply retention policy if in local or k8s mode
-    apply_retention_policy
+    local dbs=$($sqlcmd_cmd -U "$DB_USER" -P "$DB_PASS" -Q "SET NOCOUNT ON; SELECT name FROM sys.databases WHERE state = 0 AND name NOT IN ($EXCLUDED_DBS)" -h -1 2>/dev/null | grep -v '^$')
 
-    if [ $ERROR_COUNT -gt 0 ]; then
-        log_check_message "[error] Process completed with ${ERROR_COUNT} errors"
+    if [ $? -ne 0 ] || [ -z "$dbs" ]; then
+        log_check_message "[error] Error retrieving databases"
         exit 1
-    else
-        log_check_message "[info] All backups completed successfully"
-        exit 0
     fi
+
+    log_check_message "[info] Retrieved databases: $dbs"
+    printf '%s\n' $dbs
 }
 
-# Execute the script
-main
+backup_mssql_database() {
+    local db_name="$1"
+    
+    local file_name="${db_name}-${BACKUP_DATE}.bak"
+
+    local dump_cmd="sqlcmd"
+    
+    log_check_message "[info] Starting backup for ${db_name}"
+    
+    # Comando base para mysqldump + compresión
+    # Construir el comando de backup paso a paso
+
+    dump_cmd+=" -S \"$MSSQL_HOST\""
+    dump_cmd+=" -U \"$DB_USER\""
+    dump_cmd+=" -P \"$DB_PASS\""
+    dump_cmd+=" -Q \"BACKUP DATABASE [$db_name] TO DISK = '${MAPPED_DRIVE}\\${file_name}' WITH COMPRESSION, STATS=10\""
+
+    eval "$dump_cmd" && \
+    log_check_message "[info] Local backup succeeded: ${db_name}" || \
+    log_check_message "[error] Local backup failed: ${db_name}"
+
+    local copy_dump="cp ${LOCAL_TMP_DUMP_PATH}/${file_name} ${LOCAL_PATH}"
+
+    eval "$copy_dump" && \
+    log_check_message "[info] Local copy succeeded: ${db_name}" || \
+    log_check_message "[error] Local copy failed: ${db_name}"
+
+    local delete_dump="rm ${LOCAL_TMP_DUMP_PATH}/${file_name}"
+
+    eval "$delete_dump" && \
+    log_check_message "[info] Succesfully deleted: ${db_name}" || \
+    log_check_message "[error] Delete failed: ${db_name}"
+
+}
