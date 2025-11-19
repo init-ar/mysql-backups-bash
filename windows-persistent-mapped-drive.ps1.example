@@ -1,0 +1,22 @@
+# Definir la letra de unidad
+$driveLetter = "Y:"
+$remotePath = "\\shared-server\dump-sql-tmp"
+
+# Create the PSCredential object without a prompt
+$Username = "user"
+$Password = ConvertTo-SecureString "pass" -AsPlainText -Force
+$cred = New-Object System.Management.Automation.PSCredential($Username, $Password)
+
+# Verificar si existe un mapeo en la unidad antes de intentar eliminarlo
+$existingMapping = Get-SmbGlobalMapping | Where-Object { $_.LocalPath -eq $driveLetter }
+
+if ($existingMapping) {
+    Write-Host "Eliminando el mapeo existente en $driveLetter..."
+    Remove-SmbGlobalMapping -LocalPath $driveLetter -Force
+    Write-Host "Mapeo eliminado correctamente."
+} else {
+    Write-Host "No existía un mapeo en $driveLetter. Continuando..."
+}
+
+# Create the persistent global mapping
+New-SmbGlobalMapping -RemotePath $remotePath -Credential $cred -LocalPath $driveLetter
