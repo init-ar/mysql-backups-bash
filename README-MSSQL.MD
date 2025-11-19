@@ -10,11 +10,11 @@ El script copia a una carpeta temporal los dump de las bases de datos, para lueg
 
 Instrucciones para instalar en un sistema basado en Debian:
 
-apt install gnupg2
-curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
-curl https://packages.microsoft.com/config/ubuntu/20.04/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
-apt update
-apt install mssql-tools unixodbc-dev
+    apt install gnupg2
+    curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
+    curl https://packages.microsoft.com/config/ubuntu/20.04/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+    apt update
+    apt install mssql-tools unixodbc-dev
 
 Agregar a PATH
 echo 'export PATH="$PATH:/opt/mssql-tools/bin"' >> ~/.bashrc

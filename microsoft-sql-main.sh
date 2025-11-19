@@ -23,10 +23,10 @@ main() {
     local db_names=($(get_mssql_db_names))
     for db in "${db_names[@]}"; do
         backup_mssql_database "$db"
-   done
+    done
 
-   # Apply retention policys
-   apply_retention_policy
+    # Apply retention policies
+    apply_retention_policy
 
     if [ $ERROR_COUNT -gt 0 ]; then
         log_check_message "[error] Process completed with ${ERROR_COUNT} errors"
