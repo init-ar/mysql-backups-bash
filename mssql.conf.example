@@ -18,3 +18,6 @@ MAPPED_DRIVE="Y:"
 
 # Retention days: number of days to keep backup files
 RETENTION_DAYS=7
+
+#Dejar esta variable por defecto para aplicar correctamente la funcion "apply_retention_policy"
+MODE="local"
