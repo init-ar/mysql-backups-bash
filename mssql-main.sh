@@ -37,5 +37,5 @@ main() {
     fi
 }
 
-#Execute the script
+# Execute the script
 main
