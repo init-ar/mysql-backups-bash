@@ -22,7 +22,7 @@ source ~/.bashrc
 
 Se debe configurar un espacio para guardar los dumps temporales de las bases de datos (Está fuera del alcance de este documento cómo configurar una carpeta compartida, en nuestro caso se configuró una carpeta compartida por Samba).
 
-En el servidor Windows es necesario disponder de una unidad de red mapeada, con una letra asignada. Se agrega un script de ejemplo para lograr esto "windows-persistent-mapped-drive.ps1.example", se recomienda configurarlo en el programador de tareas para ejecutar al iniciar el sistema operativo.
+En el servidor Windows es necesario disponer de una unidad de red mapeada, con una letra asignada. Se agrega un script de ejemplo para lograr esto "windows-persistent-mapped-drive.ps1.example", se recomienda configurarlo en el programador de tareas para ejecutar al iniciar el sistema operativo.
 
 # Configuración
 
